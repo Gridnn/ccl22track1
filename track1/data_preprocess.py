@@ -44,7 +44,7 @@ def construct_parallel_data_para(src_path, trg_path):
     return parallel_data
 
 
-def encode_parallel_data(config, parallel_data, normalizer, tokenizer, max_len, ids2pinyin):
+def encode_parallel_data(config, parallel_data, normalizer, tokenizer, max_len):
     data = []
     for item in tqdm(parallel_data):
         data_sample = {}
@@ -55,12 +55,6 @@ def encode_parallel_data(config, parallel_data, normalizer, tokenizer, max_len, 
             src_norm = item[1][:max_len - 2]
             trg_norm = item[2][:max_len - 2]
 
-        # print(src_norm)
-        # print(len(src_norm))
-        # print(trg_norm)
-        # print(len(trg_norm))
-
-        # assert len(src_norm) == len(trg_norm)
         if len(src_norm) != len(trg_norm):
             pass
 
@@ -75,7 +69,6 @@ def encode_parallel_data(config, parallel_data, normalizer, tokenizer, max_len, 
         data_sample['input_ids'] = tokenizer.convert_tokens_to_ids(src_token_list)
         data_sample['token_type_ids'] = [0 for _ in range(len(src_token_list))]
         data_sample['attention_mask'] = [1 for _ in range(len(src_token_list))]
-        data_sample['pinyin_ids'] = [ids2pinyin[i] for i in data_sample['input_ids']]
         data_sample['trg_ids'] = tokenizer.convert_tokens_to_ids(trg_token_list)
         data_sample['trg_text'] = item[2]
         # data_sample['trg_ids'] = [0 for _ in range(len(src_token_list))]
@@ -125,7 +118,7 @@ def construct_parallel_data_lbl(src_path, trg_path):
     return parallel_data
 
 
-def encode_predict_data(config, src_path, normalizer, tokenizer, max_len, ids2pinyin):
+def encode_predict_data(config, src_path, normalizer, tokenizer, max_len):
     data = []
 
     with open(src_path, "r") as f:
@@ -153,7 +146,6 @@ def encode_predict_data(config, src_path, normalizer, tokenizer, max_len, ids2pi
         data_sample['input_ids'] = tokenizer.convert_tokens_to_ids(src_token_list)
         data_sample['token_type_ids'] = [0 for i in range(len(src_token_list))]
         data_sample['attention_mask'] = [1 for i in range(len(src_token_list))]
-        data_sample['pinyin_ids'] = [ids2pinyin[i] for i in data_sample['input_ids']]
         data.append(data_sample)
 
     return data
@@ -168,32 +160,6 @@ def main(config):
     print(config.__dict__)
     tokenizer = BertTokenizer.from_pretrained(config.bert_path)
 
-    ids2pinyin = defaultdict(int)
-    with open("model/vocab/pinyin_mapping.txt") as f:
-        for l in f:
-            ids, pinyin = l.strip().split()
-            ids2pinyin[int(ids)] = int(pinyin)
-
-    do_zimu = True
-    if do_zimu:
-        ZM2ID = {':': 1, 'a': 2, 'c': 3, 'b': 4, 'e': 5, 'd': 6, 'g': 7, 'f': 8, 'i': 9, 'h': 10, 'k': 11, 'j': 12,
-                 'm': 13, 'l': 14, 'o': 15, 'n': 16, 'q': 17, 'p': 18, 's': 19, 'r': 20, 'u': 21, 't': 22, 'w': 23,
-                 'v': 24, 'y': 25, 'x': 26, 'z': 27}
-        PYLEN = 5
-        ids2zimu = defaultdict(int)
-        f = open('model/vocab/pinyin_vocab.txt')
-        lines = f.readlines()
-        for k in ids2pinyin:
-            pinyin = lines[ids2pinyin[k]].strip()
-            if pinyin != '[OTHER]':
-                seq = []
-                for c in pinyin:
-                    seq.append(ZM2ID[c])
-                seq = [0] * PYLEN + seq
-                seq = seq[-PYLEN:]
-                ids2zimu[k] = seq
-            else:
-                ids2zimu[k] = [0] * PYLEN
 
     normalizer = normalizers.Sequence([Lowercase()])
     if config.target_dir:
@@ -205,10 +171,10 @@ def main(config):
             print("Wrong data mode!")
             exit()
 
-        encode_data = encode_parallel_data(config, parallel_data, normalizer, tokenizer, config.max_len, ids2pinyin)
+        encode_data = encode_parallel_data(config, parallel_data, normalizer, tokenizer, config.max_len)
         save_as_pkl(encode_data, config.save_path)
     else:
-        encode_data = encode_predict_data(config, config.source_dir, normalizer, tokenizer, config.max_len, ids2pinyin)
+        encode_data = encode_predict_data(config, config.source_dir, normalizer, tokenizer, config.max_len)
         save_as_pkl(encode_data, config.save_path)
 
 

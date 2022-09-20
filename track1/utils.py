@@ -1,11 +1,9 @@
 from torch.utils.data import DataLoader
 from dataset import CSC_Dataset, Padding_in_batch
-# from eval_char_level import get_char_metrics
-# from eval_sent_level import get_sent_metrics
 from eval_char_level import get_char_metrics
 from eval_sent_level import get_sent_metrics
 
-vocab_path = "./bert-base-chinese/vocab.txt"
+vocab_path = "csc/bert/vocab.txt"
 vocab = []
 with open(vocab_path, "r") as f:
     lines = f.readlines()
@@ -93,19 +91,18 @@ def save_decode_result_para(decode_pred, prob_pred, data, path, threshold=0.9):
     # f.close()
 
 
-def save_decode_result_lbl(decode_pred, prob_pred, data, path, threshold=0.0):
+def save_decode_result_lbl(decode_pred, data, path):
     count = 0
     with open(path, "w") as fout:
-        for pred_i, prob_i, src in zip(decode_pred, prob_pred, data):
+        for pred_i, src in zip(decode_pred, data):
             src_i = src['input_ids']
             line = src['id'] + ", "
             pred_i = pred_i[:len(src_i)]
-            prob_i = prob_i[:len(src_i)]
             no_error = True
-            for id, (ele, prob) in enumerate(zip(pred_i, prob_i)):
+
+            for id, ele in enumerate(pred_i):
                 if id != 0 and id != len(pred_i) - 1:
-                    if ele != src_i[id] and is_all_chinese(vocab[ele]) and is_all_chinese(vocab[src_i[id]]) and prob > threshold:
-                        # if vocab[src_i[id]] not in ['他', '她'] or vocab[ele] not in ['他', '她']:
+                    if ele != src_i[id] and is_all_chinese(vocab[ele]) and is_all_chinese(vocab[src_i[id]]):
                             if vocab[ele] != "[UNK]":
                                 count += 1
                                 no_error = False

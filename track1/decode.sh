@@ -1,8 +1,7 @@
-PRETRAIN_MODEL=./csc/bert
-DATA_DIR=./exp_data/sighan
-# hybird_test.src
-TEST_SRC_FILE=../../datasets/track1/test/single.txt
-TAG=yaclc-csc-test_dedide
+PRETRAIN_MODEL=csc/bert
+DATA_DIR=data
+TEST_SRC_FILE=data/yaclc-csc_test.src
+TAG=yaclc-csc-test
 
 python ./data_preprocess.py \
 --source_dir $TEST_SRC_FILE \
@@ -11,8 +10,8 @@ python ./data_preprocess.py \
 --data_mode "lbl" \
 --normalize "True"
 
-MODEL_PATH=model/train_with_dev.pt
-SAVE_PATH=exps/sighan/decode
+MODEL_PATH=csc/bert/final_model.pt
+SAVE_PATH=data/decode
 
 mkdir -p $SAVE_PATH
 
@@ -22,3 +21,5 @@ CUDA_VISIBLE_DEVICES=0 python decode.py \
     --model_path $MODEL_PATH \
     --save_path $SAVE_PATH"/"$TAG".lbl" ;
 
+
+python fluent/fluent.py

@@ -179,7 +179,7 @@ class Trainer:
                 os.makedirs(self.config.save_path + '/tmp/')
             save_decode_result_para(valid_output, valid_prob, self.valid_dataloader.dataset.data,
                                     self.config.save_path + '/tmp/' + "valid_" + str(epoch) + ".txt")
-            count = save_decode_result_lbl(valid_output, valid_prob, self.valid_dataloader.dataset.data,
+            count = save_decode_result_lbl(valid_output, self.valid_dataloader.dataset.data,
                                            self.config.save_path + '/tmp/' + "valid_" + str(epoch) + ".lbl")
             # try:
             char_metrics, sent_metrics = csc_metrics(

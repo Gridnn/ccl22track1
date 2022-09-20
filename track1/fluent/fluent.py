@@ -2,12 +2,10 @@ import jieba
 import time
 from models import MaskedBert
 from tqdm import tqdm
-import pandas as pd
-import numpy as np
 
 start_time = time.time()
 
-model = MaskedBert.from_pretrained("./chinese_bert_wwm_ext_pytorch")
+model = MaskedBert.from_pretrained("bert-base-chinese")
 
 print(f"Loading ngrams model cost {time.time() - start_time:.3f} seconds.")
 
@@ -40,46 +38,35 @@ def read_src(path):
     return data
 
 
-src_path = "yaclc-csc_test.src"
-hyp_path = "yaclc-csc-test_78.5.lbl"
-true_path = "true_0824.lbl"
+src_path = "../data/yaclc-csc_test.src"
+hyp_path = "../data/decode/yaclc-csc-test.lbl"
 
 src = read_src(src_path)
 pred_data = read_data(hyp_path, src)
-true_data = read_data(true_path, src)
 
 count = 0
 n = 0
-df = pd.read_excel("track2_predict_boost3.xlsx")
-src = df['origin']
-pred_data = df['boost']
 boost = []
 threshold = 0.3
-for s1, s2 in tqdm(zip(src, pred_data)):
-    if s1 != 140:
-        ppl1 = model.perplexity(
-                                x=jieba.lcut(s1),  # 经过切词的句子或段落
-                                verbose=False,  # 是否显示详细的probability，default=False
-                                )
-        ppl2 = model.perplexity(
-                                x=jieba.lcut(s2),  # 经过切词的句子或段落
-                                verbose=False,  # 是否显示详细的probability，default=False
-                                )
-    # if ppl1 - ppl2 > threshold and s2 != s1:
-    #     print('保留')
-    #     print(s1, ppl1)
-    #     print(s2, ppl2)
-    #     print(s3)
-        if s2 != s1 and ppl2 - ppl1 > threshold:
-            print('不纠')
-            boost.append(s1)
-            print(s1, ppl1)
-            print(s2, ppl2)
-        else:
-            boost.append(s2)
-    else:
-        boost.append(s1)
 
-df['boost'] = boost
-df.to_excel("track2_predict_boost.xlsx")
+f1 = open(hyp_path)
+lines = f1.readlines()
+
+f2 = open("../data/decode/yaclc-csc-test_fluent.lbl", "w")
+for s1, s2, line in tqdm(zip(src, pred_data, lines)):
+    ppl1 = model.perplexity(x=jieba.lcut(s1),  # 经过切词的句子或段落
+                            verbose=False,  # 是否显示详细的probability，default=False
+                            )
+    ppl2 = model.perplexity(x=jieba.lcut(s2),  # 经过切词的句子或段落
+                            verbose=False,  # 是否显示详细的probability，default=False
+                            )
+    if s2 != s1 and ppl2 - ppl1 > threshold:
+        print('不纠')
+        print(s1, ppl1)
+        print(s2, ppl2)
+
+        id = line.split()[0]
+        f2.write(id + '\t' + '0' + '\n')
+    else:
+        f2.write(line)
 

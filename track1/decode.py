@@ -130,12 +130,12 @@ class Decoder:
             json.dump(result, f, ensure_ascii=False)
 
     def decode(self):
-        model = self.model
-        model.load_state_dict(torch.load(self.config.model_path))
-        model.eval()
+        print(self.config.model_path)
+        self.model.load_state_dict(torch.load(self.config.model_path))
+        self.model.eval()
         with torch.no_grad():
             test_output, test_prob = self.__forward_prop(dataloader=self.test_loader, back_prop=False)
-            save_decode_result_lbl(test_output, test_prob, self.test_loader.dataset.data, self.config.save_path)
+            count = save_decode_result_lbl(test_output, self.test_loader.dataset.data, self.config.save_path)
             # save_decode_result_para(outputs, self.test_loader.dataset.data, self.config.save_path)
             self.save_as_json(test_output, test_prob, self.test_loader.dataset.data, self.config.save_path)
 

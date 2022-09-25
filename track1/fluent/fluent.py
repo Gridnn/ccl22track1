@@ -38,8 +38,8 @@ def read_src(path):
     return data
 
 
-src_path = "../data/yaclc-csc_test.src"
-hyp_path = "../data/decode/yaclc-csc-test.lbl"
+src_path = "data/yaclc-csc_test.src"
+hyp_path = "data/decode/yaclc-csc-test.lbl"
 
 src = read_src(src_path)
 pred_data = read_data(hyp_path, src)
@@ -52,7 +52,7 @@ threshold = 0.3
 f1 = open(hyp_path)
 lines = f1.readlines()
 
-f2 = open("../data/decode/yaclc-csc-test_fluent.lbl", "w")
+f2 = open("data/decode/yaclc-csc-test.lbl", "w")
 for s1, s2, line in tqdm(zip(src, pred_data, lines)):
     ppl1 = model.perplexity(x=jieba.lcut(s1),  # 经过切词的句子或段落
                             verbose=False,  # 是否显示详细的probability，default=False
@@ -66,7 +66,7 @@ for s1, s2, line in tqdm(zip(src, pred_data, lines)):
         print(s2, ppl2)
 
         id = line.split()[0]
-        f2.write(id + '\t' + '0' + '\n')
+        f2.write(id + ' ' + '0' + '\n')
     else:
         f2.write(line)
 

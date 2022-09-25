@@ -1,6 +1,7 @@
 import torch
 from transformers import BertTokenizer
 from utils import *
+from pymodel.model import BERT_Model
 from csc.csc_model import CSCModel
 from tqdm import tqdm
 import json
@@ -12,12 +13,12 @@ class Decoder:
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.tokenizer = BertTokenizer.from_pretrained(config.pretrained_model)
         self.test_loader = init_dataloader(config.test_path, config, "test", self.tokenizer)
-        self.model = CSCModel(config.pretrained_model)
+        # self.model = CSCModel(config.pretrained_model)
+        self.model = BERT_Model(config)
         self.model.to(self.device)
         self.config = config
 
     def __forward_prop(self, dataloader, back_prop=False):
-        collected_outputs = []
         prob_outputs = []
         final_out = []
         softmax = torch.nn.Softmax(-1)
@@ -29,6 +30,7 @@ class Decoder:
                 loss, logits = self.model(input_ids=batch['input_ids'],
                                           attention_mask=batch['attention_mask'],
                                           token_type_ids=batch['token_type_ids'],
+                                          pinyin_ids=batch['pinyin_ids']
                                           )
 
                 outputs = torch.argmax(logits, dim=-1).cpu()
@@ -110,7 +112,6 @@ class Decoder:
             src_i = src_i[1:-1]
             proba = []
             for id, (ele, prob, trg) in enumerate(zip(pred_i, prob_i, src_i)):
-                # ['很', '和', '少', '小']
                 ele != src
                 if ele != src_i[id] and vocab[ele] != "[UNK]" and is_all_chinese(vocab[ele]) and prob>0.5:
                     line += vocab[ele]
@@ -119,7 +120,6 @@ class Decoder:
                     line += src['src_text'][id]
                     proba.append(0)
             sample_id = '(YACLC-CSC-TEST-ID=' + "{:0>4d}".format(index + 1) + ')'
-            # sample_id = "hybrid_" + str(index)
             content = {
                 "text": src['src_text'],
                 "correction": line,
@@ -136,7 +136,6 @@ class Decoder:
         with torch.no_grad():
             test_output, test_prob = self.__forward_prop(dataloader=self.test_loader, back_prop=False)
             count = save_decode_result_lbl(test_output, self.test_loader.dataset.data, self.config.save_path)
-            # save_decode_result_para(outputs, self.test_loader.dataset.data, self.config.save_path)
             self.save_as_json(test_output, test_prob, self.test_loader.dataset.data, self.config.save_path)
 
 

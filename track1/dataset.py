@@ -1,7 +1,6 @@
 import torch
 import pickle
 from torch.utils.data.dataloader import default_collate
-import os
 
 
 class CSC_Dataset(torch.utils.data.Dataset):
@@ -19,8 +18,6 @@ class CSC_Dataset(torch.utils.data.Dataset):
         with open(data_path, 'rb') as f:
             data = pickle.load(f)
 
-        # data = data[:10000]
-
         print("--------------------------------")
         print(self.subset + ": " + str(len(data)))
         print("--------------------------------\n")
@@ -34,6 +31,7 @@ class CSC_Dataset(torch.utils.data.Dataset):
         item['attention_mask'] = torch.LongTensor(self.data[idx]['attention_mask'])
         if self.subset != 'test':
             item['trg_ids'] = torch.LongTensor(self.data[idx]['trg_ids'])
+        item['pinyin_ids'] = torch.LongTensor(self.data[idx]['pinyin_ids'])
         return item
 
     def __len__(self):
@@ -64,8 +62,8 @@ class Padding_in_batch:
             item['input_ids'] = self.pad(item['input_ids'], self.input_pad_id, max_len)
             item['token_type_ids'] = self.pad(item['token_type_ids'], 0, max_len)
             item['attention_mask'] = self.pad(item['attention_mask'], 0, max_len)
-            # pad_part = torch.zeros([max_len-item['pinyin_ids'].shape[0], 5], dtype=torch.long)
-            # item['pinyin_ids'] = torch.cat([item['pinyin_ids'], pad_part])
+            item['pinyin_ids'] = self.pad(item['pinyin_ids'], 0, max_len)
+
             if not is_test:
                 item['trg_ids'] = self.pad(item['trg_ids'], self.input_pad_id, max_len)
 

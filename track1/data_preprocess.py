@@ -22,8 +22,7 @@ def construct_parallel_data_para(src_path, trg_path):
     c_no_error_sent = 0
     for src_line, trg_line in zip(src_lines, trg_lines):
         src_items = src_line.strip().split("\t")
-        # print(src_items)
-        # print(len(src_items))
+
         assert len(src_items) == 2
         src_sent = src_items[1]
         trg_items = trg_line.strip().split("\t")
@@ -37,14 +36,13 @@ def construct_parallel_data_para(src_path, trg_path):
             for i, (src_char, trg_char) in enumerate(zip(src_sent, trg_sent)):
                 if src_char != trg_char:
                     modification.append((i, trg_char))
-        # print(id, src_sent, trg_sent, modification)
         parallel_data.append((id, src_sent, trg_sent, modification))
     print("error-free sentences: " + str(c_no_error_sent))
 
     return parallel_data
 
 
-def encode_parallel_data(config, parallel_data, normalizer, tokenizer, max_len):
+def encode_parallel_data(config, parallel_data, normalizer, tokenizer, max_len, ids2pinyin):
     data = []
     for item in tqdm(parallel_data):
         data_sample = {}
@@ -69,12 +67,9 @@ def encode_parallel_data(config, parallel_data, normalizer, tokenizer, max_len):
         data_sample['input_ids'] = tokenizer.convert_tokens_to_ids(src_token_list)
         data_sample['token_type_ids'] = [0 for _ in range(len(src_token_list))]
         data_sample['attention_mask'] = [1 for _ in range(len(src_token_list))]
+        data_sample['pinyin_ids'] = [ids2pinyin[i] for i in data_sample['input_ids']]
         data_sample['trg_ids'] = tokenizer.convert_tokens_to_ids(trg_token_list)
         data_sample['trg_text'] = item[2]
-        # data_sample['trg_ids'] = [0 for _ in range(len(src_token_list))]
-        # for n, (src, trg) in enumerate(zip(src_token_list, trg_token_list)):
-        #     if src != trg:
-        #         data_sample['trg_ids'][n] = 1
 
         data_sample['modification'] = item[3]
 
@@ -110,7 +105,7 @@ def construct_parallel_data_lbl(src_path, trg_path):
                 trg_sent[int(trg_items[i]) - 1] = trg_items[i + 1]
                 modification.append((int(trg_items[i]) - 1, trg_items[i + 1]))
         trg_sent = "".join(trg_sent)
-        # print(id, src_sent, trg_sent)
+
         parallel_data.append((id, src_sent, trg_sent, modification))
 
     print("error-free sentences: " + str(c_no_error_sent))
@@ -118,7 +113,7 @@ def construct_parallel_data_lbl(src_path, trg_path):
     return parallel_data
 
 
-def encode_predict_data(config, src_path, normalizer, tokenizer, max_len):
+def encode_predict_data(config, src_path, normalizer, tokenizer, max_len, ids2pinyin):
     data = []
 
     with open(src_path, "r") as f:
@@ -146,6 +141,7 @@ def encode_predict_data(config, src_path, normalizer, tokenizer, max_len):
         data_sample['input_ids'] = tokenizer.convert_tokens_to_ids(src_token_list)
         data_sample['token_type_ids'] = [0 for i in range(len(src_token_list))]
         data_sample['attention_mask'] = [1 for i in range(len(src_token_list))]
+        data_sample['pinyin_ids'] = [ids2pinyin[i] for i in data_sample['input_ids']]
         data.append(data_sample)
 
     return data
@@ -160,6 +156,32 @@ def main(config):
     print(config.__dict__)
     tokenizer = BertTokenizer.from_pretrained(config.bert_path)
 
+    ids2pinyin = defaultdict(int)
+    with open("pymodel/vocab/pinyin_mapping.txt") as f:
+        for l in f:
+            ids, pinyin = l.strip().split()
+            ids2pinyin[int(ids)] = int(pinyin)
+
+    do_zimu = False
+    if do_zimu:
+        ZM2ID = {':': 1, 'a': 2, 'c': 3, 'b': 4, 'e': 5, 'd': 6, 'g': 7, 'f': 8, 'i': 9, 'h': 10, 'k': 11, 'j': 12,
+                 'm': 13, 'l': 14, 'o': 15, 'n': 16, 'q': 17, 'p': 18, 's': 19, 'r': 20, 'u': 21, 't': 22, 'w': 23,
+                 'v': 24, 'y': 25, 'x': 26, 'z': 27}
+        PYLEN = 5
+        ids2zimu = defaultdict(int)
+        f = open('pymodel/vocab/pinyin_vocab.txt')
+        lines = f.readlines()
+        for k in ids2pinyin:
+            pinyin = lines[ids2pinyin[k]].strip()
+            if pinyin != '[OTHER]':
+                seq = []
+                for c in pinyin:
+                    seq.append(ZM2ID[c])
+                seq = [0] * PYLEN + seq
+                seq = seq[-PYLEN:]
+                ids2zimu[k] = seq
+            else:
+                ids2zimu[k] = [0] * PYLEN
 
     normalizer = normalizers.Sequence([Lowercase()])
     if config.target_dir:
@@ -171,10 +193,10 @@ def main(config):
             print("Wrong data mode!")
             exit()
 
-        encode_data = encode_parallel_data(config, parallel_data, normalizer, tokenizer, config.max_len)
+        encode_data = encode_parallel_data(config, parallel_data, normalizer, tokenizer, config.max_len, ids2pinyin)
         save_as_pkl(encode_data, config.save_path)
     else:
-        encode_data = encode_predict_data(config, config.source_dir, normalizer, tokenizer, config.max_len)
+        encode_data = encode_predict_data(config, config.source_dir, normalizer, tokenizer, config.max_len, ids2pinyin)
         save_as_pkl(encode_data, config.save_path)
 
 

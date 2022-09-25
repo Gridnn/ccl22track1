@@ -10,7 +10,8 @@ python ./data_preprocess.py \
 --data_mode "lbl" \
 --normalize "True"
 
-MODEL_PATH=csc/bert/final_model.pt
+# MODEL_PATH=csc/bert/final_model.pt
+MODEL_PATH=pymodel/models/pymodel.pt
 SAVE_PATH=data/decode
 
 mkdir -p $SAVE_PATH
@@ -23,3 +24,6 @@ CUDA_VISIBLE_DEVICES=0 python decode.py \
 
 
 python fluent/fluent.py
+#
+cd ner
+python ner.py ../data/yaclc-csc_test.src ../data/decode/yaclc-csc-test.lbl ../data/decode/yaclc-csc-test.lbl

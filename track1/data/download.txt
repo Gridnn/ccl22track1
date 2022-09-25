@@ -1,3 +1,12 @@
 sighan, WANG27, hybrid下载地址：
 https://drive.google.com/file/d/1AcNeuJzZFE7fLuylarK9iWpoDOaoOYYf/view?usp=sharing
 
+维基语料下载地址：
+https://pan.baidu.com/share/init?surl=PovlwB9H1Zu-Jv_WN9xZnQ
+密码：c4qk
+
+微信语料下载地址：
+https://github.com/nonamestreet/weixin_public_corpus
+
+新闻语料下载地址：
+https://github.com/brightmart/nlp_chinese_corpus#2新闻语料json版news2016zh

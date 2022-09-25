@@ -4,14 +4,13 @@ PRETRAIN_MODEL=./csc/bert
 mkdir -p $DATA_DIR
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 
-# TRAIN_SRC_FILE=../../datasets/track1/wang_dedide.src
-# TRAIN_TRG_FILE=../../datasets/track1/wang.trg
-TRAIN_SRC_FILE=../../datasets/track1/train_with_dev_boost.src
-TRAIN_TRG_FILE=../../datasets/track1/train_with_dev_boost.trg
-DEV_SRC_FILE=../../datasets/track1/test/yaclc-csc_test.src
-DEV_TRG_FILE=../../datasets/track1/test/true_0824.lbl
-TEST_SRC_FILE=../../datasets/track1/sighan.train_whole.ccl22.src
-TEST_TRG_FILE=../../datasets/track1/sighan_dedide.lbl
+
+TRAIN_SRC_FILE=path_of_train.src
+TRAIN_TRG_FILE=path_of_train.trg
+DEV_SRC_FILE=path_of_dev.src
+DEV_TRG_FILE=path_of_dev.src
+TEST_SRC_FILE=path_of_test.src
+TEST_TRG_FILE=path_of_test.src
 
 if [ ! -f $DATA_DIR"/train.pkl" ]; then
     python ./data_preprocess.py \

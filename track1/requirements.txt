@@ -1,0 +1,11 @@
+pypinyin==0.40.0
+plyvel==1.3.0
+tensorflow==2.5.0
+tqdm==4.60.0
+bert4keras==0.11.3
+jieba-fast==0.53
+Levenshtein
+openpyxl
+torch
+transformers
+scikit-learn

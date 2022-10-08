@@ -32,7 +32,7 @@ pip3 install -r requirements.txt
 ### 训练
 1. 使用data_generator将维基百科语料，微信语料，新闻语料进行纠错数据对构造。
 
-2. pipeline.sh中将会调用data_preprocess.py和train_pipeline函数，以进行对基础模型的训练。
+2. pipeline.sh中将会调用data_preprocess.py和train_pipeline.py函数，以进行对基础模型的训练。
 ```
 sh pipeline.sh
 ```

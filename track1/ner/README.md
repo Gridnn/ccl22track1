@@ -33,7 +33,7 @@ python ner.py $src_file $trg_file $output_file
 python ner_model.py
 ```
 - ner_model.py 内部参数配置
-```json
+```
 params = {
     "max_len": 128, # 样本截断长度
     "learning_rate": 2e-5, # 学习率

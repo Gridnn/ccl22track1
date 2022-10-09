@@ -66,3 +66,17 @@ sh pipeline.sh
 ```angular2html
 sh decode.sh
 ```
+
+#### 参数解释
+##### data_preprocess.py
+- source_dir 需要推理的数据地址
+- bert_path 预训练模型地址
+- save_path 处理后的数据储存地址
+- data_mode 数据类型
+- normalize 是否正则化
+
+##### decode.py
+- pretrained_model 预训练模型地址
+- test_path 处理后的数据地址
+- model_path 保存的pt模型文件地址
+- save_path 推理结果输出的地址

@@ -33,10 +33,10 @@ class Data_Generator(object):
         self.gongwen_shape_path = "../../data/confusion_shape_gongwen.json"
         self.confusion_pronounce_path = "../../data/confusion_pronounce_tencent.json"
         self.confusion_shape_path = "../../data/confusion_shape_tencent.json"
-        self.extra_candidate_path = "../../data/extra_candidate.json"
+        # self.extra_candidate_path = "../../data/extra_candidate.json"
         self.vocab_path = "../../data/vocab.txt"
         self.vocab_threshold = 100
-        self.extra_candidate = json.load(open(self.extra_candidate_path, 'r'))
+        # self.extra_candidate = json.load(open(self.extra_candidate_path, 'r'))
         self.gongwen_pronoun_confusion = json.load(open(self.gongwen_pronounce_path, 'r'))
         self.gongwen_shape_confusion = json.load(open(self.gongwen_shape_path, 'r'))
         self.confusion_pronounce = json.load(open(self.confusion_pronounce_path, 'r'))
@@ -158,7 +158,6 @@ class Data_Generator(object):
             if non_used:
                 res_mask_idx.extend(non_used)
                 res_mask_idx = list(set(res_mask_idx))
-                non_used = []
 
             while shape_idx_len > 0 and res_mask_idx:
                 idx = np.random.choice(res_mask_idx)
@@ -444,7 +443,7 @@ class ThreadClass(threading.Thread):
 
 if __name__ == "__main__":
 
-    data_path = "/Users/hayden/Downloads/csc_sample/pretrain.csv"
+    data_path = "/pretrain.csv"
     save_path = data_path.split('.')[0] + '_generated_data.csv'
     data = pd.read_csv(data_path)
     print(data.shape)

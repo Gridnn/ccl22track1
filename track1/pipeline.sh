@@ -61,7 +61,7 @@ CUDA_VISIBLE_DEVICES=$CUDA_DEVICE python -u train_pipeline.py \
     --batch_size 32 \
     --num_epochs 10 \
     --lr 5e-5 \
-    --tie_cls_weight True \
+    --tie_cls_weight False \
     --tag "sighan" \
     2>&1 | tee $MODEL_DIR"/log.txt"
 

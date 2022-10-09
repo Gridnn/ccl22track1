@@ -37,6 +37,31 @@ pip3 install -r requirements.txt
 sh pipeline.sh
 ```
 
+#### 参数解释
+
+##### data_preprocess.py
+- source_dir 含错别字的数据地址
+- target_dir 纠错后的数据地址
+- bert_path 预训练模型地址
+- save_path 预处理后数据输出地址
+- data_mode 数据形式，para或lbl
+- normalize 是否正则化
+
+##### train_pipeline.py
+- pretrained_model 预训练模型地址
+- train_path 训练集数据地址
+- dev_path 验证集数据地址
+- test_path 测试集数据地址
+- lbl_path 验证集答案
+- test_lbl_path 测试集答案
+- save_path 模型保存地址
+- batch_size 批大小
+- num_epochs 最大模型学习轮次数
+- lr 学习率
+- tag 标签
+
+
+
 ### 推理
 ```angular2html
 sh decode.sh

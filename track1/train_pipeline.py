@@ -1,14 +1,11 @@
 from utils import *
 from transformers import BertTokenizer, AdamW, get_scheduler
 from tqdm import tqdm
-from model.model import BERT_Model, BERT_Model_pinyin
-from csc.csc_model import CSCModel
+from pymodel.model import BERT_Model
 import torch
 import os
 import argparse
 from random import seed
-from attack import FGM
-from model.model_macbert4csc import SoftMaskedBert4Csc
 
 
 class Trainer:
@@ -25,7 +22,7 @@ class Trainer:
             print(i)
             break
         self.test_dataloader = init_dataloader(config.test_path, config, "testtt", self.tokenizer)
-        self.model = CSCModel(config.pretrained_model)
+        self.model = BERT_Model(config)
         # self.model = SoftMaskedBert4Csc(cfg=config, device=self.device, tokenizer=self.tokenizer)
         # self.model.load_state_dict(torch.load('./model/sighan_dedide.pt'))
         # print("model is loaded")
@@ -34,7 +31,6 @@ class Trainer:
         self.scheduler = self.set_scheduler()
         self.best_score = {"valid-c": 0, "valid-s": 0}
         self.best_epoch = {"valid-c": 0, "valid-s": 0}
-        self.fgm = FGM(self.model)
 
     def fix_seed(self, seed_num):
         torch.manual_seed(seed_num)
@@ -66,6 +62,7 @@ class Trainer:
                 loss, logits = self.model(input_ids=batch['input_ids'],
                                           attention_mask=batch['attention_mask'],
                                           token_type_ids=batch['token_type_ids'],
+                                          pinyin_ids=batch['pinyin_ids']
                                           )
 
                 outputs = torch.argmax(logits, dim=-1).cpu()
@@ -135,14 +132,12 @@ class Trainer:
             if back_prop:
                 loss.backward()
                 # 对抗训练
-                self.fgm.attack()  # 在embedding上添加对抗扰动
                 loss_adv, _ = self.model(input_ids=batch['input_ids'],
                                          attention_mask=batch['attention_mask'],
                                          token_type_ids=batch['token_type_ids'],
                                          trg_ids=batch['trg_ids'],
                                          pinyin_ids=batch['pinyin_ids'])
                 loss_adv.backward()  # 反向传播，并在正常的grad基础上，累加对抗训练的梯度
-                self.fgm.restore()  # 恢复embedding参数
 
                 self.optimizer.step()
                 self.scheduler.step()
@@ -185,18 +180,12 @@ class Trainer:
             char_metrics, sent_metrics = csc_metrics(
                 pred=self.config.save_path + '/tmp/' + "valid_" + str(epoch) + ".lbl",
                 gold=self.config.lbl_path,
+                src='data/yaclc-csc_dev.src',
             )
             get_best_score(self.best_score, self.best_epoch, epoch,
                            char_metrics["Correction"]["F1"], sent_metrics["Correction"]["F1"])
             if max(self.best_epoch.values()) == epoch:
                 self.__save_ckpt(epoch)
-            # except:
-            #     print("Decoded files cannot be evaluated.")
-            #     pass
-            # if count > most_count and epoch > 1:
-            #     most_count = count
-            #     self.__save_ckpt(epoch)
-            #     print("most count is:", most_count)
 
             print(f"curr epoch: {epoch} | curr best epoch {self.best_epoch}")
             print(f"best socre:{self.best_score}")

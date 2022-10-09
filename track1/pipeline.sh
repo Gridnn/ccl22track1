@@ -5,12 +5,12 @@ mkdir -p $DATA_DIR
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 
-TRAIN_SRC_FILE=path_of_train.src
-TRAIN_TRG_FILE=path_of_train.trg
-DEV_SRC_FILE=path_of_dev.src
-DEV_TRG_FILE=path_of_dev.src
-TEST_SRC_FILE=path_of_test.src
-TEST_TRG_FILE=path_of_test.src
+TRAIN_SRC_FILE=data/yaclc-csc_dev.src
+TRAIN_TRG_FILE=data/yaclc-csc_dev.trg
+DEV_SRC_FILE=data/yaclc-csc_dev.src
+DEV_TRG_FILE=data/yaclc-csc_dev.lbl
+TEST_SRC_FILE=data/yaclc-csc_dev.src
+TEST_TRG_FILE=data/yaclc-csc_dev.lbl
 
 if [ ! -f $DATA_DIR"/train.pkl" ]; then
     python ./data_preprocess.py \
@@ -48,7 +48,6 @@ MODEL_DIR=./exps/sighan_new
 CUDA_DEVICE=0
 mkdir -p $MODEL_DIR/bak
 cp ./pipeline.sh $MODEL_DIR/bak
-cp train.py $MODEL_DIR/bak
 
 CUDA_VISIBLE_DEVICES=$CUDA_DEVICE python -u train_pipeline.py \
     --pretrained_model $PRETRAIN_MODEL \

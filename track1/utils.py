@@ -39,6 +39,7 @@ def init_dataloader(path, config, subset, tokenizer):
 
 
 def csc_metrics(pred, gold, src='../../datasets/track1/test/yaclc-csc_test.src'):
+    print(src)
     char_metrics = get_char_metrics(src_path=src, pred_path=pred, gold_path=gold)
     sent_metrics = get_sent_metrics(pred_path=pred, targ_path=gold)
     return char_metrics, sent_metrics

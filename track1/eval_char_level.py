@@ -81,11 +81,6 @@ def compute_prf(results):
         'F1': correction_f1 * 100,
     })
 
-    # print("=" * 10 + " Character Level " + "=" * 10)
-    # print("Detection:")
-    # print("Precision: {}, Recall: {}, F1: {}".format(round(detection_precision * 100, 2), round(detection_recall * 100, 2), round(detection_f1 * 100, 2)))
-    # print("Detection:")
-    # print("Precision: {}, Recall: {}, F1: {}".format(round(correction_precision* 100, 2), round(correction_recall * 100, 2), round(correction_f1 * 100, 2)))
 
     print("=" * 10 + " Character Level " + "=" * 10)
     for k, v in metrics.items():

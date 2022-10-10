@@ -30,8 +30,7 @@ pip3 install -r requirements.txt
 ## 2. 使用模型
 
 ### 训练
-1. 使用data_generator将维基百科语料，微信语料，新闻语料进行纠错数据对构造。将构造好的数据以data中样例的
-格式（yaclc-csc_dev.src, yaclc-csc_dev.trg, yaclc-csc_dev.lbl）保存至data文件夹中。
+1. 使用data_generator将维基百科语料，微信语料，新闻语料进行纠错数据对构造。将构造好的数据以data中样例的格式（yaclc-csc_dev.src, yaclc-csc_dev.trg, yaclc-csc_dev.lbl）保存至data文件夹中。
 
 2. pipeline.sh中将会调用data_preprocess.py和train_pipeline.py函数，以进行对基础模型的训练。
 ```

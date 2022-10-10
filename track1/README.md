@@ -2,7 +2,7 @@
 ## 目录代码介绍
 - csc 基础模型
 - data 训练用的数据
-- data_generator 自动数据生成
+- data_augmentation 自动数据生成
 - fluent 困惑度减少无纠错
 - ner ner纠错方法
 - ngram ngram纠错方法

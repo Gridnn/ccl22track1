@@ -440,12 +440,25 @@ class ThreadClass(threading.Thread):
     def get_results(self):
         return self.result
 
-
 if __name__ == "__main__":
 
-    data_path = "/pretrain.csv"
+    data_path = "../../../data/articles.json"
     save_path = data_path.split('.')[0] + '_generated_data.csv'
-    data = pd.read_csv(data_path)
+
+    if data_path.endswith('txt'):
+        data = [[idx, line.strip()] for idx, line in enumerate(open(data_path, 'r').readlines())]
+    elif data_path.endswith('csv'):
+        data = pd.read_csv(data_path)
+        data = data[['id', 'content']].values
+    elif data_path.endswith('xlsx'):
+        data = pd.read_excel(data_path)
+        data = data[['id', 'content']].values
+    elif data_path.endswith('json'):
+        data = [[idx, json.loads(line)['content']] for idx, line in enumerate(open(data_path,
+                                                                                   'r', encoding='utf-8'))]
+    else:
+        logger.info('the data format is not support !')
+
     print(data.shape)
     print(data.columns)
     _count_max = 50

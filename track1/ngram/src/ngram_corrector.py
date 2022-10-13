@@ -1,364 +1,418 @@
-# coding: utf-8
-import os
-from itertools import product
-from functools import lru_cache
-import re
-import sys
+#!usr/bin/env python
+#-*- coding:utf-8 -*-
+"""
+fork https://github.com/hiyoung123/YoungCorrector/blob/master/corrector.py
+删简版-删掉自定义词对混淆词典/未登录词检测，只保留字词纠错
+"""
+
+import codecs
+import jieba
+import kenlm
 import numpy as np
-import plyvel
-import math
-from pypinyin import lazy_pinyin, pinyin, Style
-from jieba_fast import Tokenizer, posseg
-from Levenshtein import distance
+import pandas as pd
+import operator
+import os
+import time
+from pypinyin import lazy_pinyin
 
-semantic_data_dir = "./static"
-leveldb_dir = "./model/leveldb"
-
-CAND_ORIGINAL_WEIGHT = 1.0
-CAND_HOMONYMS_WEIGHT = 0.5  # 1.1
-CAND_STROKES_WEIGHT = 0.4  # 1.1
-CAND_FREQ1_THRED = 5
-CHINESE_RE_PATTERN = r'\u3400-\u9FFF'
+from loguru import logger
+from src.text_utils import *
 
 
-class Candidate:
-    def __init__(self, candidate_str, is_original=False, prev_candidate=None, proba=0.0, is_flag=False):
-        self.word = candidate_str
-        self.is_original = is_original
-        self.prev_candidate = prev_candidate
-        self.proba = proba
-        self.is_flag = is_flag
-
-    def __str__(self):
-        return "<%s: %.2f>" % ("".join(self.word), self.proba)
+class ErrorType(object):
+    word = 'word'
+    char = 'char'
 
 
-class CandidateList:
-    def __init__(self):
-        self._candidate_list = [[Candidate("S", is_flag=True)]]
-        self.origin_sequence = None
-
-    def __getitem__(self, key):
-        if len(self._candidate_list) <= key + 1:
-            self._candidate_list.extend([[]] * (key + 2 - len(self._candidate_list)))
-        return self._candidate_list[key+1]
-
-
-class CandidateGen(object):
-    def __init__(self, py_db, freq_db):
-        self._py_db = py_db
-        self.py_db_dict = {}
-        self.prefix_db = {}
-        with self._py_db.iterator() as it:
-            for k, v in it:
-                v = int(v)
-                if v < CAND_FREQ1_THRED: continue
-                self.py_db_dict[k] = v
-                py, word = k.decode("utf-8").split("::")
-                if py not in self.prefix_db: self.prefix_db[py] = {}
-                self.prefix_db[py][word] = v
-        self.shape_like_word2id, self.shape_like_id2group = self.load_shape_like()
-        self.freq_db = freq_db
-
-    @staticmethod
-    def load_shape_like():
-        user_dict_file_path = os.path.join(semantic_data_dir, "word_simi", "default_simi_word.txt")
-        user_dict_file = open(user_dict_file_path, encoding="utf-8")
-        user_dict_lst = [line.strip() for line in user_dict_file if line.strip()]
-        user_dict_file.close()
-        word2id = {}
-        id2group = {}
-        for idx, line in enumerate(user_dict_lst):
-            line = line.strip()
-            if line:
-                words = {w for w in line.split(",") if w}
-                id2group[idx] = words
-                for w in words:
-                    word2id[w] = idx
-        return word2id, id2group
-
-    @lru_cache(maxsize=int(os.environ.get("NGram_CandidateGen_CacheSize", "2000")))
-    def add_candidates(self, word):
-        raw_py = self.get_pinyin(word)
-        py = format_pinyin(raw_py)  # normalize
-        py = bytes(py.encode("utf-8"))
-        sub_homonyms = {}
-        for idx, char in enumerate(word):
-            if char == '幺':
-                print(char)
-            if char in self.shape_like_word2id:
-                cand_chars = self.shape_like_id2group[self.shape_like_word2id[char]] - {char}
-                for sub_char in cand_chars:
-                    sub_word = ''.join(word[:idx] + sub_char + word[idx+1:])
-                    if int(self.freq_db.get(sub_word.encode('utf-8'), 0)) >= CAND_FREQ1_THRED:
-                        sub_homonyms[sub_word] = CAND_STROKES_WEIGHT
-        possible_py = product(*pinyin(word, style=Style.NORMAL, heteronym=False))
-        for ppy in possible_py:
-            ppy = format_pinyin("".join(ppy))
-            if ppy not in self.prefix_db: continue
-            for k, v in self.prefix_db[ppy].items():
-                if self.get_pinyin(k) == raw_py:
-                    sub_homonyms[k] = CAND_HOMONYMS_WEIGHT
-                else:
-                    sub_homonyms[k] = CAND_STROKES_WEIGHT
-        return sub_homonyms
-
-    @lru_cache(maxsize=int(os.environ.get("NGram_CandidateGen_CacheSize", "2000")))
-    def get_pinyin(self, word):
-        result = "".join(lazy_pinyin(word))
-        return result
-
-    def gen_candidates(self, word, raw_only):
-        if len(word) == 0: return {}
-        if len(word) == 1:  return {word: CAND_ORIGINAL_WEIGHT}
-        # original
-        candidates = {word: CAND_ORIGINAL_WEIGHT}
-        if raw_only: return candidates
-        # homonyms
-        for homonym, weight in self.add_candidates(word).items():
-            if homonym != word:
-                candidates[homonym] = weight
-        return candidates
+class config:
+    same_pinyin_path = "../data/same_pinyin.txt"
+    same_stroke_path = "../data/same_stroke.txt"
+    # lm_model_path = "../data/people_chars_lm.klm"
+    lm_model_path = '../model/ngram_model/text.klm'
+    char_set_path = "../data/common_char_set.txt"
+    pinyin2word_path = "../data/pinyin2word.model"
 
 
 class NgramCorrector(object):
-    def __init__(self, leveldb_dir=leveldb_dir):
-        print('__init__ NGramChecker')
-        self.pinyin_db = plyvel.DB(os.path.join(leveldb_dir, 'py_db'), create_if_missing=False)
-        self.freq_db = plyvel.DB(os.path.join(leveldb_dir, 'word_freq_db'), lru_cache_size=1024*1024*10)
-        freq_size = 0
-        max_freq = 0
-        total_freq = 0
-        with self.freq_db.iterator() as it:
-            for k, v in it:
-                v = int(v)
-                if v > max_freq:
-                    max_freq = v
-                freq_size += 1
-                total_freq += v
-        self.freq_size = freq_size
-        self.max_freq = max_freq
-        self.MIN_UNION_WORD_FREQ_PROB = math.log(1.0 / (max_freq + freq_size)) * 3.0
-        self.MIN_WORD_FREQ_PROB = math.log(1.0 / total_freq) - 1
-        self.MIN_PROB = -1.0 * sys.maxsize
-        self.TOTAL_WORDS = total_freq
-        self._candidate_gen = CandidateGen(self.pinyin_db, self.freq_db)
-        self.tokenizer = Tokenizer()
-        self.tokenizer.initialize()  # for loading model
-        posseg.initialize()
-        print('__init__ NGramChecker done')
 
-    @lru_cache(maxsize=int(os.environ.get("NGram_CalcProb_CacheSize", "2000")))
-    def calc_prob(self, a, b, weight):
-        if not a:
-            if not b:
-                raise Exception('pre word and next word should not be None together')
-            return self.MIN_UNION_WORD_FREQ_PROB
+    def __init__(self, config):
+        self.same_pinyin_path = config.same_pinyin_path
+        self.same_stroke_path = config.same_stroke_path
+        self.char_set_path = config.char_set_path
+        self.lm_model_path = config.lm_model_path
+        self.pinyin2word_path = config.pinyin2word_path
 
-        # pruning
-        if self.freq_db.get(a.encode("utf-8"), None) is None or self.freq_db.get((a + b).encode("utf-8"), None) is None:
-            return self.MIN_UNION_WORD_FREQ_PROB / weight
+        self.same_pinyin_dict = self._load_same_pinyin_dict(self.same_pinyin_path)
+        self.same_stroke_dict = self._load_same_stroke_dict(self.same_stroke_path)
+        self.pinyin2word = self._load_pinyin_2_word(self.pinyin2word_path)
+        self.char_set = self._load_char_set(self.char_set_path)
+        self.tokenizer = jieba
+        self.lm = kenlm.Model(self.lm_model_path)
 
-        score = math.log((1.0 * int(self.freq_db.get((a + b).encode('utf-8'), 0)) + 1) /
-                         (int(self.freq_db.get(a.encode('utf-8'), 0)) + self.freq_size)) / weight
-        return score
-
-    @lru_cache(maxsize=100)
-    def origin_factor(self, length):
-        '''
-        给原始句子乘上对应长度的放大系数
-        '''
-        if length <= 3:
-            return -0.125 * (length - 3) + 0.5
-        else:
-            return 0.5
-
-    def check_sentence(self, sentence, max_back_grams=3, raw_only=False, word_seg_list=None):
-        if not word_seg_list: word_seg_list = []
-        candidate_list = CandidateList()
-        for curr_right in range(len(sentence)):
-            max_offset = min(curr_right, max_back_grams)
-            for curr_left in range(curr_right, curr_right - max_offset - 1, -1):
-                original_word = sentence[curr_left:curr_right+1]
-                is_raw_only = raw_only
-                for (cand_word, cand_weight) in self._candidate_gen.gen_candidates(original_word, is_raw_only).items():
-                    if '么' in cand_word:
-                        print(cand_word, cand_weight)
-                    if len(cand_word) != len(original_word): continue
-                    candidate = Candidate(cand_word, cand_word == original_word, None, self.MIN_PROB)
-                    for prev_candidate in candidate_list[curr_left-1]:
-                        proba = self.calc_prob(prev_candidate.word, candidate.word, cand_weight)
-                        if prev_candidate.is_flag and not candidate.is_original and proba == self.MIN_UNION_WORD_FREQ_PROB: continue
-                        if abs(proba - candidate.proba) < 1e-7 and not (candidate.is_original and prev_candidate.is_original): continue
-                        if prev_candidate.is_flag and candidate.word in word_seg_list and candidate.is_original and (abs(proba - self.MIN_UNION_WORD_FREQ_PROB) < 1e-7):
-                            proba = self.MIN_UNION_WORD_FREQ_PROB * self.origin_factor(len(candidate.word))
-                        if prev_candidate.word in word_seg_list and candidate.is_original and prev_candidate.is_original and (abs(proba - self.MIN_UNION_WORD_FREQ_PROB) < 1e-7):
-                            proba = self.MIN_UNION_WORD_FREQ_PROB * self.origin_factor(len(prev_candidate.word))
-                        if curr_right == len(sentence) - 1: proba += self.calc_prob(candidate.word, "E", cand_weight)
-                        proba += prev_candidate.proba
-                        if proba > candidate.proba or (abs(proba - candidate.proba) < 1e-7 and prev_candidate.is_original):
-                            candidate.proba = proba
-                            candidate.prev_candidate = prev_candidate
-                    if not candidate.prev_candidate: continue
-                    candidate_list[curr_right].append(candidate)
-                    if candidate.is_original: candidate_list.origin_sequence = candidate
-        # 找最优路径
-        max_prob = self.MIN_PROB
-        max_candidate = None
-        for candidate in candidate_list[len(sentence) - 1]:
-            if candidate.proba > max_prob:
-                max_prob = candidate.proba
-                max_candidate = candidate
-        new_words = []
-        error_index = []
-        line = str(sentence)
-        while max_candidate.is_flag != True:
-            candidate_words = max_candidate.word
-            if line[-len(candidate_words):] != candidate_words:
-                error_index.append((len(line) - len(candidate_words), len(line) - 1))
-            line = line[:-len(candidate_words)]
-            new_words.append(candidate_words)
-            max_candidate = max_candidate.prev_candidate
-        new_words.reverse()
-        error_index.reverse()
-        origin_prob = candidate_list.origin_sequence.proba
-        error_word_index = []
-        curr_idx = 0
-        for word_idx, word in enumerate(new_words):
-            if (curr_idx, curr_idx + len(word) - 1) in error_index:
-                error_word_index.append(word_idx)
-            curr_idx += len(word)
-        check_passed = False
-        for error_idx, word_idx in enumerate(error_word_index):
-            orig_word = sentence[error_index[error_idx][0]:error_index[error_idx][1]+1]
-            if word_idx - 1 >= 0:
-                if self.calc_prob(new_words[word_idx - 1], new_words[word_idx], 1) > self.calc_prob(
-                        new_words[word_idx - 1], orig_word, 1):
-                    check_passed = True
-            if word_idx + 1 < len(new_words):
-                if self.calc_prob(new_words[word_idx], new_words[word_idx + 1], 1) > self.calc_prob(
-                        orig_word, new_words[word_idx + 1], 1):
-                    check_passed = True
-        if (max_prob / len(sentence) > float(os.getenv("NGramThreshold", -12.0))) and (
-                ((max_prob - origin_prob) / -origin_prob > 0.06) or check_passed):
-            return ''.join(new_words), error_index, max_prob / len(sentence)
-        else:
-            return '', [], max_prob / len(sentence)
-
-    def check_sentence_with_word_seg(self, sentence):
-        """词查错"""
-        cut_list = self.tokenizer.lcut(sentence)
-        results = []
-        curr_idx = len(cut_list[0])
-        for word_idx in range(1, len(cut_list)):
-            orig_word = cut_list[word_idx]
-            possible_replacements = []
-            confidence = []
-            for candidate in self._candidate_gen.gen_candidates(cut_list[word_idx], raw_only=False):
-                if candidate == orig_word: continue
-                proba_passed = False
-                if word_idx - 1 >= 0:
-                    orig_proba = self.calc_prob(cut_list[word_idx - 1], orig_word, 1)
-                    new_proba = self.calc_prob(cut_list[word_idx - 1], candidate, 1)
-                    if orig_proba > 0.3 * self.MIN_UNION_WORD_FREQ_PROB: proba_passed = True
-                    if new_proba > orig_proba and orig_proba <= 0.8 * self.MIN_UNION_WORD_FREQ_PROB and not proba_passed:
-                        if candidate in possible_replacements: continue
-                        old_cut_result = posseg.lcut(f"{cut_list[word_idx - 1]}{orig_word}")
-                        new_cut_result = posseg.lcut(f"{cut_list[word_idx - 1]}{candidate}")
-                        if len(old_cut_result) != len(new_cut_result): continue
-                        if [pos_tag for _, pos_tag in old_cut_result] != [pos_tag for _, pos_tag in new_cut_result]: continue
-                        possible_replacements.append(candidate)
-                        confidence.append(self.calc_prob(cut_list[word_idx - 1], candidate, 1))
-                if word_idx + 1 < len(cut_list):
-                    orig_proba = self.calc_prob(orig_word, cut_list[word_idx + 1], 1)
-                    new_proba = self.calc_prob(candidate, cut_list[word_idx + 1], 1)
-                    if orig_proba > 0.3 * self.MIN_UNION_WORD_FREQ_PROB: proba_passed = True
-                    if new_proba > orig_proba and orig_proba <= 0.8 * self.MIN_UNION_WORD_FREQ_PROB and not proba_passed:
-                        if candidate in possible_replacements: continue
-                        old_cut_result = posseg.lcut(f"{orig_word}{cut_list[word_idx + 1]}")
-                        new_cut_result = posseg.lcut(f"{candidate}{cut_list[word_idx + 1]}")
-                        if len(old_cut_result) != len(new_cut_result): continue
-                        if [pos_tag for _, pos_tag in old_cut_result] != [pos_tag for _, pos_tag in new_cut_result]: continue
-                        possible_replacements.append(candidate)
-                        confidence.append(self.calc_prob(candidate, cut_list[word_idx + 1], 1))
-
-            if len(possible_replacements) > 0:
-                index_s = sentence.find(orig_word)
-                results.append([''.join(possible_replacements[0]), (index_s, index_s+len(orig_word)-1), max(confidence)])
-            curr_idx += len(orig_word)
-        if len(results) == 0: return []
-        max_confidence = -9999
-        max_confidence_result = None
-        for result in results:
-            if result[-1] <= max_confidence: continue
-            max_confidence = result[-1]
-            max_confidence_result = result
-        return [max_confidence_result]
-
-    def main(self, cur_text):
-
-        sentences_info = preprocess_and_split_sentences(cur_text)
-        texts = []
-        mappings = []
-        for sentence, mapping in sentences_info:
-            print(sentence)
-            texts.append(sentence)
-            char_map = []
-            for idx, char in enumerate(sentence):
-                map_start, map_end = mapping[idx]
-                if re.match("[A-Z]", char):
-                    char_map.append(map_end)
-                else:
-                    char_map.append(map_start)
-            mappings.append(char_map)
-
-        results = []
-        error_indexes = set()
-        for text_id, text in enumerate(texts):
-            raw_cut_list = self.tokenizer.lcut(text, HMM=False)
-            correction, ec_index, avg_prob = self.check_sentence(sentence=text, word_seg_list=raw_cut_list)
-            corrected_sentence = "".join(correction)
-            if distance(text, corrected_sentence) > 3:
-                continue
-            for s, e in ec_index:
-                _s, _e = mappings[text_id][s], mappings[text_id][e]
-                results.append(["".join(correction[s: e + 1]), (_s, _e), avg_prob])
-                error_indexes.add((_s, _e))
-        for text_id, text in enumerate(texts):
-            result_seg = self.check_sentence_with_word_seg(text)
-            for correction, ec_index, avg_prob in result_seg:
-                ec_index = (mappings[text_id][ec_index[0]], mappings[text_id][ec_index[1]])
-                if ec_index in error_indexes:
+    def _load_same_pinyin_dict(self, path, sep='\t'):
+        result = dict()
+        if not os.path.exists(path):
+            logger.warn("file not exists: %s" % path)
+            return result
+        with codecs.open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('#'):
                     continue
-                results.append([correction, ec_index, avg_prob])
+                parts = line.split(sep)
+                if parts and len(parts) > 2:
+                    key_char = parts[0]
+                    same_pron_same_tone = set(list(parts[1]))
+                    same_pron_diff_tone = set(list(parts[2]))
+                    value = same_pron_same_tone.union(same_pron_diff_tone)
+                    if key_char and value:
+                        result[key_char] = value
+        self.same_pinyin_path = path
+        return result
 
-        return [{"error_correction": [cur[0]], "origin": cur_text[cur[1][0]:cur[1][1]+1],
-                 "start_offset": cur[1][0], "end_offset": cur[1][1]}for cur in results]
+    def _load_same_stroke_dict(self, path,  sep='\t'):
+        result = dict()
+        if not os.path.exists(path):
+            logger.warn("file not exists: %s" % path)
+            return result
+        with codecs.open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('#'):
+                    continue
+                parts = line.split(sep)
+                if parts and len(parts) > 1:
+                    for i, c in enumerate(parts):
+                        result[c] = set(list(parts[:i] + parts[i + 1:]))
+        self.same_stroke_path = path
+        return result
+
+    def _load_pinyin_2_word(self, path):
+        result = dict()
+        if not os.path.exists(path):
+            logger.warn("file not exists: %s" % path)
+            return result
+        with codecs.open(path, 'r', encoding='utf-8') as f:
+            a = f.read()
+            result = eval(a)
+        return result
+
+    def _load_char_set(self, path):
+        words = set()
+        with codecs.open(path, 'r', encoding='utf-8') as f:
+            for w in f:
+                w = w.strip()
+                if w.startswith('#'):
+                    continue
+                if w:
+                    words.add(w)
+        return words
+
+    def _check_state(self):
+        res = True
+        res &= self.same_pinyin_dict is not None
+        res &= self.same_stroke_dict is not None
+        return res
+
+    def _process_text(self, text):
+        # 编码统一，utf-8 to unicode
+        text = convert_to_unicode(text)
+        text = uniform(text)
+        return text
+
+    def _check_in_errors(self, maybe_errors, maybe_err):
+        error_word_idx = 0
+        begin_idx = 1
+        end_idx = 2
+        for err in maybe_errors:
+            if maybe_err[error_word_idx] in err[error_word_idx] and maybe_err[begin_idx] >= err[begin_idx] and \
+                    maybe_err[end_idx] <= err[end_idx]:
+                return True
+        return False
+
+    def _get_max_len(self, d):
+        return max(map(len, [w for w in d]))
+
+    def FMM(self, word_dict, token, window_size=5):
+        idxs = []
+        result = []
+        index = 0
+        text_size = len(token)
+        while text_size > index:
+            for size in range(window_size + index, index, -1):
+                piece = token[index:size]
+                if piece in word_dict:
+                    index = size - 1
+                    idxs.append(index-len(piece)+1)
+                    result.append(piece)
+                    break
+            index = index + 1
+        return idxs, result
+
+    def _is_filter_token(self, token):
+        # 空
+        if not token.strip():
+            return True
+        # 全是英文
+        if is_alphabet_string(token):
+            return True
+        # 全是数字
+        if token.isdigit():
+            return True
+        # 只有字母和数字
+        if is_alp_diag_string(token):
+            return True
+        # 过滤标点符号
+        if re_poun.match(token):
+            return True
+
+        return False
+
+    def _get_maybe_error_index(self, scores, ratio=0.6745, threshold=2.0):
+        """
+        取疑似错字的位置，通过平均绝对离差（MAD）
+        :param scores: np.array
+        :param ratio: 正态分布表参数
+        :param threshold: 阈值越小，得到疑似错别字越多
+        :return: 全部疑似错误字的index: list
+        """
+        result = []
+        scores = np.array(scores)
+        if len(scores.shape) == 1:
+            scores = scores[:, None]
+        median = np.median(scores, axis=0)  # get median of all scores
+        margin_median = np.abs(scores - median).flatten()  # deviation from the median
+        # 平均绝对离差值
+        med_abs_deviation = np.median(margin_median)
+        if med_abs_deviation == 0:
+            return result
+        y_score = ratio * margin_median / med_abs_deviation
+        # 打平
+        scores = scores.flatten()
+        maybe_error_indices = np.where((y_score > threshold) & (scores < median))
+        # 取全部疑似错误字的index
+        result = list(maybe_error_indices[0])
+        return result
+
+    def _detect_by_word_ngrm(self, maybe_errors, sentence, start_idx):
+        try:
+            ngram_avg_scores = []
+            tokens = [x for x in self.tokenizer.cut(sentence)]
+            print(tokens)
+            for n in [1, 2, 3]:
+                scores = []
+                for i in range(len(tokens) - n + 1):
+                    word = tokens[i:i + n]
+                    score = self.lm.score(' '.join(list(word)), bos=False, eos=False)
+                    scores.append(score)
+                if not scores:
+                    continue
+                # 移动窗口补全得分
+                for _ in range(n - 1):
+                    scores.insert(0, scores[0])
+                    scores.append(scores[-1])
+                    # scores.append(sum(scores)/len(scores))
+                avg_scores = [sum(scores[i:i + n]) / len(scores[i:i + n]) for i in range(len(tokens))]
+                ngram_avg_scores.append(avg_scores)
+
+            if ngram_avg_scores:
+                # 取拼接后的n-gram平均得分
+                sent_scores = list(np.average(np.array(ngram_avg_scores), axis=0))
+                # 取疑似错字信息
+                for i in self._get_maybe_error_index(sent_scores, threshold=2.0):
+                    token = tokens[i]
+                    # i = sentence.find(token)
+                    if len(token) == 1:
+                        type = ErrorType.char
+                    else:
+                        type = ErrorType.word
+                    maybe_err = [token, i+start_idx, i+len(token)+start_idx, type]
+                    if maybe_err not in maybe_errors and not self._check_in_errors(maybe_errors, maybe_err):
+                        maybe_errors.append(maybe_err)
+
+        except IndexError as ie:
+            logger.warn("index error, sentence:" + sentence + str(ie))
+        except Exception as e:
+            logger.warn("detect error, sentence:" + sentence + str(e))
+
+    def _detect_by_char_ngrm(self, maybe_errors, sentence, start_idx):
+        try:
+            ngram_avg_scores = []
+            for n in [1, 2, 3, 4]:
+                scores = []
+                for i in range(len(sentence) - n + 1):
+                    word = sentence[i:i + n]
+                    score = self.lm.score(' '.join(list(word)), bos=False, eos=False)
+                    scores.append(score)
+                if not scores:
+                    continue
+                # 移动窗口补全得分
+                for _ in range(n - 1):
+                    scores.insert(0, scores[0])
+                    scores.append(scores[-1])
+                    # scores.append(sum(scores) / len(scores))
+                avg_scores = [sum(scores[i:i + n]) / len(scores[i:i + n]) for i in range(len(sentence))]
+                ngram_avg_scores.append(avg_scores)
+
+            if ngram_avg_scores:
+                # 取拼接后的n-gram平均得分
+                sent_scores = list(np.average(np.array(ngram_avg_scores), axis=0))
+                # 取疑似错字信息
+                for i in self._get_maybe_error_index(sent_scores, threshold=1.7):
+                    token = sentence[i]
+                    maybe_err = [token, i+start_idx, i+len(token)+start_idx, ErrorType.char]
+                    if maybe_err not in maybe_errors and not self._check_in_errors(maybe_errors, maybe_err):
+                        maybe_errors.append(maybe_err)
+
+        except IndexError as ie:
+            logger.warn("index error, sentence:" + sentence + str(ie))
+        except Exception as e:
+            logger.warn("detect error, sentence:" + sentence + str(e))
+
+    def _detect_short(self, sentence, start_idx):
+        maybe_errors = []
+        if not sentence.strip():
+            return maybe_errors
+        self._detect_by_word_ngrm(maybe_errors, sentence, start_idx)
+        self._detect_by_char_ngrm(maybe_errors, sentence, start_idx)
+        return sorted(maybe_errors, key=lambda x: x[1], reverse=False)
+
+    def _candidates(self, word, fregment=1):
+        candidates = []
+        if len(word) > 1:
+            candidates += self._candidates_by_edit(word)
+        candidates += self._candidates_by_pinyin(word)
+        candidates += self._candidates_by_stroke(word)
+        return list(set(candidates))
+
+    def known(self, words):
+        """The subset of `words` that appear in the dictionary of WORDS."""
+        return set(w for w in words if w in self.word_dict)
+
+    def edits1(self, word):
+        """All edits that are one edit away from `word`."""
+        splits = [(word[:i], word[i:]) for i in range(len(word) + 1)]
+        transposes = [L + R[1] + R[0] + R[2:] for L, R in splits if len(R) > 1]
+        replaces = [L + c + R[1:] for L, R in splits if R for c in self.char_set]
+        return set(transposes + replaces)
+
+    def _candidates_by_edit(self, word):
+        return [w for w in self.known(self.edits1(word)) or [word] if lazy_pinyin(word) == lazy_pinyin(w)]
+
+    def _candidates_by_pinyin(self, word):
+        l = []
+        r = list(self.pinyin2word.get(','.join(lazy_pinyin(word)), {word:''}).keys())
+        for i, w in enumerate(word):
+            before = word[:i]
+            after = word[i+1:]
+            a = list(self.same_pinyin_dict.get(w, w))
+            l += [before+x+after for x in a]
+
+        return set(l + r)
+
+    def _candidates_by_stroke(self, word):
+        l = []
+        for i, w in enumerate(word):
+            before = word[:i]
+            after = word[i + 1:]
+            a = list(self.same_stroke_dict.get(w, w))
+            l += [before + x + after for x in a]
+
+        return set(l)
+
+    def _calibration(self, maybe_errors):
+        res = []
+        pre_item = None
+        for cur_item, begin_idx, end_idx, err_type in maybe_errors:
+
+            if pre_item is None:
+                pre_item = [cur_item, begin_idx, end_idx, err_type]
+                res.append(pre_item)
+                continue
+            if ErrorType.char == err_type and err_type == pre_item[3] and begin_idx == pre_item[2]:
+                pre_item = [pre_item[0]+cur_item, pre_item[1], end_idx, ErrorType.word]
+                res.pop()
+            else:
+                pre_item = [cur_item, begin_idx, end_idx, err_type]
+            res.append(pre_item)
+        return res
+
+    def get_lm_correct_item(self, cur_item, candidates, before_sent, after_sent, threshold=58):
+        """
+        通过语言模型纠正字词错误
+        :param cur_item: 当前词
+        :param candidates: 候选词
+        :param before_sent: 前半部分句子
+        :param after_sent: 后半部分句子
+        :param threshold: ppl阈值, 原始字词替换后大于ppl则是错误
+        :return: str, correct item, 正确的字词
+        """
+        result = cur_item
+        if cur_item not in candidates:
+            candidates.append(cur_item)
+        ppl_scores = {i: self.lm.perplexity(' '.join(list(before_sent + i + after_sent))) for i in candidates}
+        sorted_ppl_scores = sorted(ppl_scores.items(), key=lambda d: d[1])
+        # 增加正确字词的修正范围，减少误纠
+        top_items = []
+        top_score = 0.0
+        for i, v in enumerate(sorted_ppl_scores):
+            v_word = v[0]
+            v_score = v[1]
+            if i == 0:
+                top_score = v_score
+                top_items.append(v_word)
+            # 通过阈值修正范围
+            elif v_score < top_score + threshold:
+                top_items.append(v_word)
+            else:
+                break
+        if cur_item not in top_items:
+            result = top_items[0]
+        return result
+
+    def correct(self, text):
+        if text is None or not text.strip():
+            logger.warn("Input text is error.")
+            return text
+
+        if not self._check_state():
+            logger.warn("Corrector not init.")
+            return text
+
+        text_new = ''
+        details = []
+        text = self._process_text(text)
+        blocks = split_long_text(text, include_symbol=True)
+        for blk, idx in blocks:
+            maybe_errors = self._detect_short(blk, idx)
+            maybe_errors = self._calibration(maybe_errors)
+            for cur_item, begin_idx, end_idx, err_type in maybe_errors:
+                # 纠错，逐个处理
+                before_sent = blk[:(begin_idx - idx)]
+                after_sent = blk[(end_idx - idx):]
+
+                # 取得所有可能正确的词
+                candidates = self._candidates(cur_item)
+                if not candidates:
+                    continue
+                corrected_item = self.get_lm_correct_item(cur_item, candidates, before_sent, after_sent)
+                if corrected_item != cur_item:
+                    blk = before_sent + corrected_item + after_sent
+                    detail_word = [cur_item, corrected_item, begin_idx, end_idx]
+                    details.append(detail_word)
+            text_new += blk
+        details = sorted(details, key=operator.itemgetter(2))
+        return [{"error_correction": [cur[1]], "origin": cur[0], "start_offset": cur[2], "end_offset": cur[3]-1} for cur in details]
 
 
-def format_pinyin(py):
-    py = re.sub("sh|ch|zh", lambda x: x.group()[:1], py)
-    py = re.sub("ang|eng|ing|ong", lambda x: x.group()[:2], py)
-    return py
+if __name__ == "__main__":
 
-
-def preprocess_and_split_sentences(input_text: str):
-    norm_mapping = [(i, i) for i in range(len(input_text))]
-    sentence_lst = []
-    for search_item in re.finditer(r'[%sA-Z“”\"]+' % CHINESE_RE_PATTERN, input_text):
-        start, end = search_item.start(), search_item.end()
-        sentence_lst.append((input_text[start:end], norm_mapping[start:end]))
-
-    return sentence_lst
-
-
-if __name__ == '__main__':
-    _text = "那是我的侄子和侄女的招片。"
-    # _text = "上银行，使用网上银行可以在网上转帐，也可以在网上购买东西。"
-    # _text = "我中标得到那几本课本后，他就联系我怎幺寄送。"
-    _text = "他就联系我怎幺寄送。"
-    _text = "所以我们早上买午饭去工作或做弁当拿去工作"
-    _text = "两个月之前，我在韩国的时候，用英语说比用汉语说得跟容易。"
-    checker = NgramCorrector()
-    _results = checker.main(_text)
-    print(_results)
+    corrector = NgramCorrector(config)
+    text = ["满不满意？我听说中国化了很多很多钱，所以我想知道到底值不值得。"]
+    start = time.time()
+    result = []
+    for _index, x in enumerate(text):
+        y = corrector.correct(x)
+        result.append(y)
+        print(y)
+    print(time.time() - start)

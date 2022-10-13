@@ -16,9 +16,9 @@ for gpu in tf.config.list_physical_devices("GPU"):
 class MLMProcessor:
     def __init__(self):
         self.maxlen = 512
-        self.MODEL_DIR = "./model/chinese_L-12_H-768_A-12"
+        self.MODEL_DIR = "../model/chinese_L-12_H-768_A-12"
         self.load()
-        self.threshold = 0.08
+        self.threshold = 0.1
         self.batch_size = 32
 
     def load(self):

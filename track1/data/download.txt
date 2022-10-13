@@ -10,3 +10,6 @@ https://github.com/nonamestreet/weixin_public_corpus
 
 新闻语料下载地址：
 https://github.com/brightmart/nlp_chinese_corpus#2新闻语料json版news2016zh
+
+使用data_augumentation生成的伪数据：
+https://drive.google.com/file/d/14mptfS1P6cHKvx5BxlaqGggd4fotW5Pj/view?usp=sharing

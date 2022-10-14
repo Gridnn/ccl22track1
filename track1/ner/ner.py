@@ -9,9 +9,9 @@ from tqdm import tqdm
 
 from ner_model import LMModel
 
-ENTITY_DICT_PATH = "./entity_dict.json"
-CONFUSION_DICT_PATH = "./whole_confusion.json"
-NER_MODEL_PATH = "./model_cluener_crf"
+ENTITY_DICT_PATH = "entity_dict.json"
+CONFUSION_DICT_PATH = "whole_confusion.json"
+NER_MODEL_PATH = "model_cluener_crf"
 MAX_OPERATION = 2.5e8
 
 
